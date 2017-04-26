@@ -5,11 +5,14 @@ const Json = imports.gi.Json;
 const Mainloop = imports.mainloop;
 const Gettext = imports.gettext;
 const GLib = imports.gi.GLib;
+
 const UUID = "location-detection@heimdall";
 
 //Get your api key from IPinfoDB and place it after key= and before &format=json
 
 const GEO_IP_URL = 'http://api.ipinfodb.com/v3/ip-city/?key=d115c954db28487f38c5d25d5dcf62a5786479b87cc852cabe8fd6f1971d7f89&format=json';
+
+
 
 const REFRESH_INTERVAL = 30
 
