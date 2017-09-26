@@ -2,9 +2,20 @@ const Applet = imports.ui.applet;
 const PopupMenu = imports.ui.popupMenu;
 const ExtensionSystem = imports.ui.extensionSystem;
 const Lang = imports.lang;
+const GLib = imports.gi.GLib;
+const Gettext = imports.gettext;
+const uuid = "extensions@dalcde";
 
-const Gettext = imports.gettext.domain('cinnamon-applets');
-const _ = Gettext.gettext;
+// l10n/translation support
+Gettext.bindtextdomain(uuid, GLib.get_home_dir() + "/.local/share/locale")
+
+function _(str) {
+  return Gettext.dgettext(uuid, str);
+}
+
+function translate_extension(uuid, str) {
+  return Gettext.dgettext(uuid, str);
+}
 
 const ExtensionState = ExtensionSystem.ExtensionState;
 
@@ -24,7 +35,7 @@ ExtensionSwitch.prototype = {
         if (this.meta.state == ExtensionState.DISABLED)
             this.setToggleState(false);
 
-        this.label.set_text(this.meta.name);
+        this.label.set_text(translate_extension(this.meta.uuid, this.meta.name));
         this.connect('toggled', Lang.bind(this, this._onSwitchToggled));
     },
 
@@ -54,10 +65,10 @@ MyApplet.prototype = {
         Applet.IconApplet.prototype._init.call(this, orientation);
 
         this.orientation = orientation;
-	this.set_applet_tooltip(_("Extensions Manager"));
+        this.set_applet_tooltip(_("Extensions Manager"));
 
-	this.menuManager = new PopupMenu.PopupMenuManager(this);
-	this.appletMenu = new Applet.AppletPopupMenu(this, orientation);
+        this.menuManager = new PopupMenu.PopupMenuManager(this);
+        this.appletMenu = new Applet.AppletPopupMenu(this, orientation);
         this.menuManager.addMenu(this.appletMenu);
 
         this.set_applet_icon_symbolic_name("starred");
@@ -66,7 +77,7 @@ MyApplet.prototype = {
     },
 
     on_applet_clicked: function(){
-	this.appletMenu.toggle();
+        this.appletMenu.toggle();
     },
 
     _loadExtensions: function(){

@@ -1,7 +1,7 @@
 const Applet = imports.ui.applet;
 const Cinnamon = imports.gi.Cinnamon;
 const GLib = imports.gi.GLib;// ++ Needed for starting programs and translations
-const GTop = imports.gi.GTop;
+// const GTop = imports.gi.GTop; //Moved to be within try...catch below
 const Gio = imports.gi.Gio;
 const Lang = imports.lang;
 const Mainloop = imports.mainloop;
@@ -13,14 +13,30 @@ const Settings = imports.ui.settings; // Needed for settings API
 const Clutter = imports.gi.Clutter; // Needed for vnstat addition
 const ModalDialog = imports.ui.modalDialog; // Needed for Modal Dialog used in Alert
 const NMClient = imports.gi.NMClient; // Needed for modifications to NM calls 
+const Gettext = imports.gettext; // ++ Needed for translations
 
-// l10n/translation support as per NikoKrause tutorial modified as UUID already used!
-const Gettext = imports.gettext
-const UUIDl10n = "netusagemonitor@pdcurtis"
-Gettext.bindtextdomain(UUIDl10n, GLib.get_home_dir() + "/.local/share/locale")
-
+// Localisation/translation support - moved up and slightly non standard due to GTOP test which follows.
+var UUID = "netusagemonitor@pdcurtis";
+Gettext.bindtextdomain(UUID, GLib.get_home_dir() + "/.local/share/locale");
 function _(str) {
-  return Gettext.dgettext(UUIDl10n, str);
+    let customTrans = Gettext.dgettext(UUID, str);
+    if (customTrans !== str && customTrans !== "")
+        return customTrans;
+    return Gettext.gettext(str);
+}
+
+// Check that GTOP library is installed as applet will not run without it
+// Based on method used in applet hwmonitor@sylfurd
+// All functions wusing GTop have an if (!GTopInstalled) {return}; added at start
+let GTopInstalled = true;
+try {
+  var GTop = imports.gi.GTop;
+} catch(e){
+                 let icon = new St.Icon({ icon_name: 'error',
+                 icon_type: St.IconType.FULLCOLOR,
+                 icon_size: 36 });
+                 Main.criticalNotify(_("Some Dependencies not Installed"), _("You appear to be missing some of the programs or libraries required for this applet to run.\n\nPlease read the help file on how to install them."), icon);
+  GTopInstalled = false;
 }
 
 // Alert response using a Modal Dialog - approach thanks to Mark Bolin 
@@ -57,8 +73,7 @@ MyApplet.prototype = {
     _init: function (metadata, orientation, panel_height, instance_id) {
         Applet.Applet.prototype._init.call(this, orientation, panel_height, instance_id);
         try {
-
-            this.UUID = metadata.uuid // Pick up UUID from metadata to make everything location independent
+			if (!GTopInstalled) {return};
             this.settings = new Settings.AppletSettings(this, metadata.uuid, instance_id);
             this.settings.bindProperty(Settings.BindingDirection.IN,
                 "refreshInterval-spinner",
@@ -212,11 +227,11 @@ MyApplet.prototype = {
                 null);
 
             this.cssfile = metadata.path + "/stylesheet.css";
-            this.changelog = metadata.path + "/changelog.txt";
+            this.changelog = metadata.path + "/CHANGELOG.md";
             this.helpfile = metadata.path + "/README.md";
             this.crisisScript = metadata.path + "/crisisScript";
             this.appletPath = metadata.path;
-            this.UUID = metadata.uuid;
+
             this.applet_running = true; //** New
  
             this._client = NMClient.Client.new(); //++
@@ -262,19 +277,31 @@ MyApplet.prototype = {
             this.menu = new Applet.AppletPopupMenu(this, orientation);
             this.menuManager.addMenu(this.menu);
 
-            // Add code for vnstat display
+            // Add code for vnstat display as per Clem's code
             this.imageWidget = new St.Bin({
                 x_align: St.Align.MIDDLE
-            }); // As per Clem's code
-            this.textWidget = new St.Label(); // Used to display error message if vnstat not loaded
-            this.mainBox = new St.BoxLayout({
-                vertical: true
-            }); // Extra mainBox to enable hiding of vnstati output
+            });
+            this.textWidget = new St.Label(); // Only used to display error message if vnstat not loaded
+			this.menu.addActor(this.imageWidget);     // Actor added directly to menu
+//			this.menu.addActor(this.textWidget);      // Actor added directly to menu
             this.vnstatImage = metadata.path + "/vnstatImage.png"; // path to image file in applet's folder
 
-            this.makeMenu();
-
-            // Initial conditions
+            this.nullImage = metadata.path + "/transdot.gif"
+ 
+           // Initial conditions
+            this.monitoredInterfaceName = null;
+            let lastUsedInterface = this.monitoredIinterfaceBi;
+            if (this.dataUnit == 'gbytes') { 
+                this.totalLimit = this.totalLimit1 * 1024;
+                this.cumulativeOffset1 = this.cumulativeOffsetA * 1024;
+                this.cumulativeOffset2 = this.cumulativeOffsetB * 1024;
+                this.cumulativeOffset3 = this.cumulativeOffsetC * 1024;
+            } else {
+                this.totalLimit = this.totalLimit1;
+                this.cumulativeOffset1 = this.cumulativeOffsetA;
+                this.cumulativeOffset2 = this.cumulativeOffsetB;
+                this.cumulativeOffset3 = this.cumulativeOffsetC;
+            }
             this.gtop = new GTop.glibtop_netload();
             this.timeOld = GLib.get_monotonic_time();
             this.upOld = 0;
@@ -285,11 +312,8 @@ MyApplet.prototype = {
             this.downOldC2 = 0;
             this.upOldC3 = 0;
             this.downOldC3 = 0;
-
+            this.numa_style = 'numa-not-not-connected';
             this.last_numa_style = 'numa-not-not-connected'; 
-
-            this.monitoredInterfaceName = null;
-            let lastUsedInterface = this.monitoredIinterfaceBi;
 
             this.set_applet_tooltip(_("No Interface being Monitored - right click to select"));
             if (this.useDefaultInterfaceIn) {
@@ -298,11 +322,11 @@ MyApplet.prototype = {
             if (this.isInterfaceAvailable(lastUsedInterface) || lastUsedInterface == "ppp0" || lastUsedInterface == "bnep0") {
                 this.setMonitoredInterface(lastUsedInterface);
             }
+
             this.rebuildFlag = true;
             this.firstTimeFlag  = true;
-//            this.firstTimeFlag  = false;
 
-            this.on_settings_changed();
+            this.makeMenu();            
             this.update();
         } catch (e) {
             global.logError(e);
@@ -331,7 +355,6 @@ MyApplet.prototype = {
             this.cumulativeOffset2 = this.cumulativeOffsetB;
             this.cumulativeOffset3 = this.cumulativeOffsetC;
         }
-
         this.updateLeftMenu();
     },
 
@@ -391,50 +414,66 @@ MyApplet.prototype = {
         return false;
     },
 
-    // Build left click menu - some menu items are placeholders which are updated on changes and some are conditional
+    // Build or rebuild left click menu - some menu items are placeholders which are updated on changes, some are conditional and some are Widgets.
     makeMenu: function () {
-        this.menu.removeAll();
-        // fudge to remove display of vnstat by using Box and removing actor from it as removeAll does not work on it
-        this.mainBox.add_actor(this.imageWidget);
-        this.mainBox.remove_actor(this.imageWidget);
-        // Add code for vnstat display 
-        if (this.useVnstat) {
-            //			this.menu.addActor(this.imageWidget);      // Old way with actor added directly to menu
-            try {
-                this.menu.addActor(this.mainBox); // Now add mainbox
-                this.mainBox.add_actor(this.imageWidget); // and add actor for to it which can be removed
-                this.mainBox.add_actor(this.textWidget); // and text actor to handle case where vnstat not installed
+        this.isVnstatInstalled = true;
+        try {
+            this.menu.removeAll(); // NOTE: Does not remove the Widgets only PopupMenuItems.  
+            if (this.useVnstat) {
+               if ( this.monitoredInterfaceName != null) {
+                GLib.spawn_command_line_sync('vnstati -s -ne -i ' + this.monitoredInterfaceName + ' -o ' + this.vnstatImage);
+                this.displayImage = this.vnstatImage
+                }
+             } else {
+                 this.displayImage = this.nullImage // Use 1x1 image instead of vnstati generated image
+             }
 
-                GLib.spawn_command_line_async('vnstati -s -ne -i ' + this.monitoredInterfaceName + ' -o ' + this.vnstatImage);
-                let l = new Clutter.BinLayout();
-                let b = new Clutter.Box();
-                let c = new Clutter.Texture({
-                    keep_aspect_ratio: true,
-                    filter_quality: 2,
-                    filename: this.vnstatImage
-                });
-                b.set_layout_manager(l);
-                b.add_actor(c);
-                this.imageWidget.set_child(b);
-            } catch (e) {
-                this.textWidget.set_text(_("ERROR: Please make sure vnstat and vnstati are installed and that the vnstat daemon is running!"));
-                global.logError(e);
+             let l = new Clutter.BinLayout();
+             let b = new Clutter.Box();
+             let c = new Clutter.Texture({
+                 keep_aspect_ratio: true,
+                 filter_quality: 2,
+                 filename: this.displayImage
+             });
+             b.set_layout_manager(l);
+             b.add_actor(c);
+             this.imageWidget.set_child(b);
+        } catch (e) {
+           this.isVnstatInstalled = false;
+           // NOTE: Do not write errors to global log as usual with global.logError(e) as it would fill up!
+        }
+        if (this.useVnstat) {
+           if (this.isVnstatInstalled) { 
+
+               this.menuitemHead0 = new PopupMenu.PopupMenuItem(_("NOTE: The last time the network traffic statistics were updated by vnStat is at the top right"), {
+               reactive: false
+               });
+               this.menu.addMenuItem(this.menuitemHead0);
+
+               this.menuitemHead1 = new PopupMenu.PopupMenuItem("          " + _("If no Interface is Active, the last available information has been displayed"), {
+               reactive: false
+               });
+               this.menu.addMenuItem(this.menuitemHead1)
+
+            } else { 
+
+               this.menuitemHead2 = new PopupMenu.PopupMenuItem(_("ERROR: Please make sure vnstat and vnstati are installed and that the vnstat daemon is running!"), {
+               reactive: false
+               });
+
+                  this.menu.addMenuItem(this.menuitemHead2);
             }
-            this.menuitemHead0 = new PopupMenu.PopupMenuItem(_("NOTE: The last time the network traffic statistics were updated by vnStat is at the top right"), {
-                reactive: false
-            });
-            this.menu.addMenuItem(this.menuitemHead0);
-            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem())
+
+            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         }
 
-        // Now the Cumulative Usage monitors
-
-        // Inhibit header if no interface monitored. NOTE Separators inhibited automatically by cinnamon 2.0
+        // Now write the Cumulative Usage monitors
+        // Inhibit header if no interface monitored. 
         if (this.cumulativeInterface1 != "null" && this.cumulativeInterface1 != "" || this.cumulativeInterface2 != "null" && this.cumulativeInterface2 != ""  || this.cumulativeInterface3 != "null" && this.cumulativeInterface3 != "") {
-            this.menuitemHead1 = new PopupMenu.PopupMenuItem(_("Cumulative Data Usage Information:"), {
+            this.menuitemHead3 = new PopupMenu.PopupMenuItem(_("Cumulative Data Usage Information:"), {
             reactive: false
         });
-            this.menu.addMenuItem(this.menuitemHead1);
+            this.menu.addMenuItem(this.menuitemHead3);
         }
 
         if (this.cumulativeInterface1 != "null" && this.cumulativeInterface1 != "") {
@@ -458,10 +497,10 @@ MyApplet.prototype = {
         }
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem())
-        this.menuitemHead2 = new PopupMenu.PopupMenuItem(_("Current Connection and Interface Information"), {
+        this.menuitemHead4 = new PopupMenu.PopupMenuItem(_("Current Connection and Interface Information"), {
             reactive: false
         });
-        this.menu.addMenuItem(this.menuitemHead2);
+        this.menu.addMenuItem(this.menuitemHead4);
 
         if (this.monitoredInterfaceName != null) {
             this.menuitemInfo = new PopupMenu.PopupMenuItem("placeholder", {
@@ -491,6 +530,7 @@ MyApplet.prototype = {
 
     // Update left menu
     updateLeftMenu: function () {
+
 
         if (this.useTotalLimit) {
             this.menuitemInfo2.label.text = "    " + _("Alert level (Orange):") + " " + Math.round(this.alertPercentage) + _("% of Data Limit of") + " " + this.formatSentReceived((this.totalLimit* 1024 * 1024 )) ;
@@ -523,41 +563,17 @@ MyApplet.prototype = {
 
     // Build right click context menu
     buildContextMenu: function () {
-      // No longer needed
-      // this._applet_context_menu.removeAll();
 
 /*
 The code following allows me to retain the 'standard' additions of 'About...' 'Configure...' and 'Remove' when rebuilding the Context menu.
-
-The use of a PopupMenu.PopupMenuSection was suggested @collinss with implementation provided by @Odyseus in a way that allowed me to keep your code almost exactly as it was with a minimum number of tweaks. The following code adds all the menu items to the applet context menu without touching the default items.
-
-    // Build right click context menu
-    buildContextMenu: function() {
-        // Not needed.
-        // this._applet_context_menu.removeAll();
-
-        if (this.myMenuSection)
-            this.myMenuSection.destroy();
-
-        this.myMenuSection = new PopupMenu.PopupMenuSection();
-        this._applet_context_menu.addMenuItem(this.myMenuSection, 0);
-
-        // Rest of buildContextMenu function.
-        // Items added to this.myMenuSection insted of this._applet_context_menu.
-    },
-
-Note Odysius has used the index 0 (zero) to insert the menu section to position items in the correct order and avoid the menu section being added after all the default items. Maybe @collinss could shed some light on why this happened?
+The use of a PopupMenu.PopupMenuSection was suggested @collinss with implementation provided by @Odyseus in a way that allowed me to keep your code almost exactly as it was with a minimum number of tweaks. 
+Note Odysius has used the index 0 (zero) to insert the menu section to position items in the correct order and avoid the menu section being added after all the default items.
 */
 
         if (this.myMenuSection)
             this.myMenuSection.destroy();
-
         this.myMenuSection = new PopupMenu.PopupMenuSection();
         this._applet_context_menu.addMenuItem(this.myMenuSection, 0);
-
-
-
-
 
 // Old code continues
 
@@ -579,12 +595,12 @@ Note Odysius has used the index 0 (zero) to insert the menu section to position 
                 if (this.monitoredInterfaceName == name) {
                     displayname = "\u2714" + displayname;
                 }
-                let menuitem = new PopupMenu.PopupMenuItem(displayname);
-                menuitem.connect('activate', Lang.bind(this, function () {
+                let menuitemdisp = new PopupMenu.PopupMenuItem(displayname);
+                menuitemdisp.connect('activate', Lang.bind(this, function () {
                     this.setMonitoredInterface(name);
                 }));
-                this.myMenuSection.addMenuItem(menuitem);
-//                this._applet_context_menu.addMenuItem(menuitem);
+                this.myMenuSection.addMenuItem(menuitemdisp);
+//                this._applet_context_menu.addMenuItem(menuitemdisp);
             }
         } 
         this.myMenuSection.addMenuItem(new PopupMenu.PopupMenuItem(_("or Select an independent interface to be monitored:"), {
@@ -607,13 +623,13 @@ Note Odysius has used the index 0 (zero) to insert the menu section to position 
         if (this.monitoredInterfaceName == "bnep0") {
             displayname3 = "\u2714" + displayname3;
         }
-        let menuitem = new PopupMenu.PopupMenuItem(displayname3);
+        menuitem = new PopupMenu.PopupMenuItem(displayname3);
         menuitem.connect('activate', Lang.bind(this, function () {
             this.setMonitoredInterface("bnep0");
         }));
         this.myMenuSection.addMenuItem(menuitem)
 
-        let menuitem = new PopupMenu.PopupMenuItem(_("Check for Changes in Devices and Display Options"));
+        menuitem = new PopupMenu.PopupMenuItem(_("Check for Changes in Devices and Display Options"));
         menuitem.connect('activate', Lang.bind(this, function (event) {
             this.rebuildFlag = true;
         }));
@@ -621,7 +637,7 @@ Note Odysius has used the index 0 (zero) to insert the menu section to position 
 
         this.myMenuSection.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        let menuitem = new PopupMenu.PopupMenuItem(_("Toggle Display from \u2193 and \u2191 to \u21f5"));
+        menuitem = new PopupMenu.PopupMenuItem(_("Toggle Display from \u2193 and \u2191 to \u21f5"));
         menuitem.connect('activate', Lang.bind(this, function (event) {
             if (this.compactDisplay) {
                 this.compactDisplay = false;
@@ -635,33 +651,33 @@ Note Odysius has used the index 0 (zero) to insert the menu section to position 
 
         // Code to reset Cumulative Data Usage and set their comments to the current date and time
 
-        let menuitem = new PopupMenu.PopupMenuItem(_("Reset Cumulative Data Usage") + " 1 (" + this.cumulativeInterface1 + ")");
+        menuitem = new PopupMenu.PopupMenuItem(_("Reset Cumulative Data Usage") + " 1 (" + this.cumulativeInterface1 + ")");
         menuitem.connect('activate', Lang.bind(this, function (event) {
-        let d = new Date();
+        let d1 = new Date();
         this.cT1 = 0;
         this.cumulativeTotal1 = 0;
-        this.cumulativeComment1 = "from " + d.toLocaleString();
-        this.cumulativeOffset1 = 0;
+        this.cumulativeComment1 = "from " + d1.toLocaleString();
+        this.cumulativeOffsetA = 0;
         }));
         this.myMenuSection.addMenuItem(menuitem);
 
-        let menuitem = new PopupMenu.PopupMenuItem(_("Reset Cumulative Data Usage") + " 2 (" + this.cumulativeInterface2 + ")");
+        menuitem = new PopupMenu.PopupMenuItem(_("Reset Cumulative Data Usage") + " 2 (" + this.cumulativeInterface2 + ")");
         menuitem.connect('activate', Lang.bind(this, function (event) {
-        let d = new Date();
+        let d2 = new Date();
         this.cT2 = 0;
         this.cumulativeTotal2 = 0;
-        this.cumulativeComment2 = "from " + d.toLocaleString();
-        this.cumulativeOffset2 = 0;
+        this.cumulativeComment2 = "from " + d2.toLocaleString();
+        this.cumulativeOffsetB = 0;
         }));
         this.myMenuSection.addMenuItem(menuitem);
 
-        let menuitem = new PopupMenu.PopupMenuItem(_("Reset Cumulative Data Usage") + " 3 (" + this.cumulativeInterface3 + ")");
+        menuitem = new PopupMenu.PopupMenuItem(_("Reset Cumulative Data Usage") + " 3 (" + this.cumulativeInterface3 + ")");
         menuitem.connect('activate', Lang.bind(this, function (event) {
-        let d = new Date();
+        let d3 = new Date();
         this.cT3 = 0;
         this.cumulativeTotal3 = 0;
-        this.cumulativeComment3 = "from " + d.toLocaleString();
-        this.cumulativeOffset3 = 0;
+        this.cumulativeComment3 = "from " + d3.toLocaleString();
+        this.cumulativeOffsetC = 0;
         }));
         this.myMenuSection.addMenuItem(menuitem);
 
@@ -671,7 +687,7 @@ Note Odysius has used the index 0 (zero) to insert the menu section to position 
         this.subMenu1 = new PopupMenu.PopupSubMenuMenuItem(_("Housekeeping and System Sub Menu"));
         this.myMenuSection.addMenuItem(this.subMenu1);
 
-        this.subMenuItem1 = new PopupMenu.PopupMenuItem("Open System Monitor");
+        this.subMenuItem1 = new PopupMenu.PopupMenuItem(_("Open System Monitor"));
         this.subMenuItem1.connect('activate', Lang.bind(this, function (event) {
             GLib.spawn_command_line_async('gnome-system-monitor');
         }));
@@ -731,18 +747,9 @@ Note Odysius has used the index 0 (zero) to insert the menu section to position 
             this.subMenu1.menu.addMenuItem(this.subMenuItem7);
          }
     },
-/*
-//      Following no longer needed as it is provided in default context menu items 
-
-//        this._applet_context_menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        let menuitem = new PopupMenu.PopupMenuItem(_("Configure"));
-        menuitem.connect('activate', Lang.bind(this, function (event) {
-            GLib.spawn_command_line_async('cinnamon-settings applets ' + this.UUID);
-        }));
-        this.myMenuSection.addMenuItem(menuitem);
-*/
 
     setMonitoredInterface: function (name) {
+		if (!GTopInstalled) {return};
         this.monitoredInterfaceName = name;
         this.rebuildFlag = true;
         // This is a convenient place to ensure upOld and downOld are reset after change of interface or start-up
@@ -772,7 +779,6 @@ Note Odysius has used the index 0 (zero) to insert the menu section to position 
     playAlert: function(){
         if(this.useAlertSound) {
             GLib.spawn_command_line_async('play ' + this.alertSound);
-//            GLib.spawn_command_line_async('play /usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga');
         }
     },
 
@@ -824,6 +830,7 @@ Note Odysius has used the index 0 (zero) to insert the menu section to position 
     // This is the main update run in a loop with a timer 
     // The displays are made fixed width of 15 characters using padstring()
     update: function () {
+		if (!GTopInstalled) {return};
         if (this.monitoredInterfaceName != null) {
             let timeNow = GLib.get_monotonic_time();
             let deltaTime = (timeNow - this.timeOld) / 1000000;
@@ -938,8 +945,8 @@ Note Odysius has used the index 0 (zero) to insert the menu section to position 
         if (this.update_ct3) {
             this.cumulativeTotal3 = this.cT3;
         }
-        let timer = this.refreshIntervalIn * 500;
-        Mainloop.timeout_add((timer), Lang.bind(this, this.update));         
+        let timer2 = this.refreshIntervalIn * 500;
+        Mainloop.timeout_add((timer2), Lang.bind(this, this.update));         
     },
 
 formatSpeed: function (value) {
@@ -998,7 +1005,7 @@ function main(metadata, orientation, panel_height, instance_id) {
 }
 
 /*
-Version 3.1.2
+Version 3.2.1
 1.0 Applet Settings now used for Update Rate, Resolution and Interface. 
     Built in function used for left click menu. 
 1.1 Right click menu item added to open Settings Screen. 
@@ -1151,4 +1158,28 @@ Transition to new cinnamon-spices-applets repository from github.com/pdcurtis/ci
           Update README.md (2x) for contributions from @collinss and @Odyseus.
 3.1.2     Change spawn_command_line_sync to spawn_command_line_async to remove one reason for 'dangerous' classification.
           Correct several spelling errors in comments and .md files.
+3.2.0     Remove duplicate let declarations occurances in common coding for Cinnamon 3.4 thanks to @NikoKraus  [#604]
+3.2.1     Harmonise with code writen by author for vnstat@cinnamon.org and revert 3.1.2 until further testing.
+          Updated netusagemonitor.pot using cinnamon-json-makepot --js po/netusagemonitor.pot as string added. 
+          Tidy up comments in applet.js
+          Update README.md to remove a couple of references to Ubuntu from early days.
+          Usual updates to new version in applet.js, changelog and metadata.json
+3.2.2     Removed unused this.UUID = metadata.uuid 
+          Improved l10n translation support.
+          Added CHANGELOG.md to applet folder and use it instead of changelog.txt in right click menu
+          CHANGELOG.md based on recent entries to changelog.txt with last changes at the top. changelog.txt currently remains in applet folder but is not used.
+          Use symbolic links for README.md and CHANGELOG.md instead of copies from the applet folder to UUID folder for the Cinnamon Web Site to pick up
+## 3.2.3
+ * Add check that GTop library is installed using a try and catch(e) technique
+ * Remove some additional duplicate let declarations occurances which could give difficulties in Cinnamon 3.4
+ * Changes to l10n translation support to bring ahead of GTop test.
+ * Update CHANGELOG.md, README.md, settings-schema.json and metadata.json
+ * Update netusagemonitor.pot so translations can be updated.
+## 3.2.3.1
+ * Changes in intialisation to remove some CJS warnings 
+## 3.2.4
+ * Change method of inhibiting display of vnstati image when vnstati not installed or enabled in settings by substituting a tiny image instead of use of an extra mainBox which led to CJS warnings.
+ * Improved notification when vnstat and vnstati not installed
+ * Tidy up code 
+ * Better formatting of CHANGELOG.md     
 */
